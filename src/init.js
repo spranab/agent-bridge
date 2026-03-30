@@ -15,11 +15,11 @@ import { fileURLToPath } from "url";
 const args = process.argv.slice(2);
 
 if (args[0] !== "init" || !args[1]) {
-  console.log("Usage: mcp-agent-bridge init <workspace-id> [--url <bridge-url>]");
+  console.log("Usage: mcp-agent-bridge init <workspace-id> [--name <workspace-name>] [--url <bridge-url>]");
   console.log("");
   console.log("Examples:");
-  console.log("  npx mcp-agent-bridge init desktop-api");
-  console.log("  npx mcp-agent-bridge init laptop-frontend --url https://agent-bridge.mcp.mycluster.cyou");
+  console.log("  npx mcp-agent-bridge init desktop-api --name \"REST API project\"");
+  console.log("  npx mcp-agent-bridge init laptop-frontend --name \"React frontend\" --url https://agent-bridge.mcp.mycluster.cyou");
   console.log("  npx mcp-agent-bridge init my-workspace --url http://localhost:4100");
   process.exit(1);
 }
@@ -27,6 +27,8 @@ if (args[0] !== "init" || !args[1]) {
 const workspaceId = args[1];
 const urlIdx = args.indexOf("--url");
 const bridgeUrl = urlIdx !== -1 ? args[urlIdx + 1] : "http://localhost:4100";
+const nameIdx = args.indexOf("--name");
+const workspaceName = nameIdx !== -1 ? args[nameIdx + 1] : "";
 const cwd = process.cwd();
 
 // Find the check-inbox-http.js path (relative to this package)
@@ -42,15 +44,15 @@ if (existsSync(mcpPath)) {
   } catch {}
 }
 mcpConfig.mcpServers = mcpConfig.mcpServers || {};
+const headers = { "x-workspace-id": workspaceId };
+if (workspaceName) headers["x-workspace-name"] = workspaceName;
 mcpConfig.mcpServers["agent-bridge"] = {
   type: "sse",
   url: `${bridgeUrl}/sse`,
-  headers: {
-    "x-workspace-id": workspaceId,
-  },
+  headers,
 };
 writeFileSync(mcpPath, JSON.stringify(mcpConfig, null, 2) + "\n");
-console.log(`✓ .mcp.json — workspace_id: "${workspaceId}", url: ${bridgeUrl}/sse`);
+console.log(`✓ .mcp.json — workspace_id: "${workspaceId}"${workspaceName ? `, name: "${workspaceName}"` : ""}, url: ${bridgeUrl}/sse`);
 
 // 2. Create/update .claude/settings.json
 const claudeDir = resolve(cwd, ".claude");
@@ -78,6 +80,27 @@ settings.hooks.Stop = [hookEntry];
 
 writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 console.log(`✓ .claude/settings.json — hooks: UserPromptSubmit + Stop`);
+
+// 3. Register with the bridge immediately
+try {
+  const regRes = await fetch(`${bridgeUrl}/api/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      workspace_id: workspaceId,
+      description: workspaceName || `Workspace ${workspaceId}`,
+      machine: (await import("os")).hostname(),
+    }),
+  });
+  if (regRes.ok) {
+    const data = await regRes.json();
+    console.log(`✓ Registered with bridge — ${data.active_workspaces?.length || 0} other workspace(s) online`);
+  } else {
+    console.log(`⚠ Could not register (bridge may be offline) — will auto-register when Claude connects`);
+  }
+} catch {
+  console.log(`⚠ Could not reach bridge at ${bridgeUrl} — will auto-register when Claude connects`);
+}
 
 console.log("");
 console.log(`Done! Restart Claude Code in this workspace to activate.`);

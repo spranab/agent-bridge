@@ -231,7 +231,14 @@ async function main() {
       }
     });
 
-    // REST API for hooks and external integrations
+    // REST API for hooks, CLI, and external integrations
+    app.use(express.json());
+
+    app.post("/api/register", async (req, res) => {
+      const result = await handleTool("register", req.body || {});
+      res.json(JSON.parse(result.content[0].text));
+    });
+
     app.get("/api/inbox/:workspaceId", async (_req, res) => {
       const r = getRedis();
       const raw = await r.lrange(`inbox:${_req.params.workspaceId}`, 0, -1);
