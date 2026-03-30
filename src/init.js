@@ -75,8 +75,16 @@ const hookEntry = {
 };
 
 settings.hooks = settings.hooks || {};
-settings.hooks.UserPromptSubmit = [hookEntry];
-settings.hooks.Stop = [hookEntry];
+
+// Append to existing hooks, don't replace. Remove any old agent-bridge hooks first.
+for (const event of ["UserPromptSubmit", "Stop"]) {
+  settings.hooks[event] = settings.hooks[event] || [];
+  // Remove existing agent-bridge hooks (by checking for check-inbox in command)
+  settings.hooks[event] = settings.hooks[event].filter(
+    (h) => !h.hooks?.some((hook) => hook.command?.includes("check-inbox"))
+  );
+  settings.hooks[event].push(hookEntry);
+}
 
 writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 console.log(`✓ .claude/settings.json — hooks: UserPromptSubmit + Stop`);
