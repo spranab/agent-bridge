@@ -6,7 +6,8 @@
   "main": "src/server.js",
   "bin": {
     "mcp-agent-bridge": "./src/server.js",
-    "agent-bridge": "./src/server.js"
+    "agent-bridge": "./src/server.js",
+    "agent-bridge-channel": "./src/channel.js"
   },
   "scripts": {
     "start": "node src/server.js",

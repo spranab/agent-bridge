@@ -48,8 +48,20 @@ mcpConfig.mcpServers["agent-bridge"] = {
   url: `${bridgeUrl}/sse`,
   headers: { "x-workspace-id": workspaceId },
 };
+// Channel server for real-time push (reads workspace_id from .mcp.json)
+const channelScript = resolve(__dirname, "channel.js");
+mcpConfig.mcpServers["agent-bridge-channel"] = {
+  command: "node",
+  args: [channelScript],
+  env: {
+    AGENT_BRIDGE_REDIS_URL: process.env.AGENT_BRIDGE_REDIS_URL || "redis://localhost:6379",
+    AGENT_BRIDGE_WORKSPACE_ID: workspaceId,
+  },
+};
 writeFileSync(mcpPath, JSON.stringify(mcpConfig, null, 2) + "\n");
 console.log(`✓ .mcp.json — workspace_id: "${workspaceId}", url: ${bridgeUrl}/sse`);
+console.log(`✓ .mcp.json — agent-bridge-channel configured (real-time push via Redis)`);
+
 
 // 2. Create/update .claude/settings.json (merges — preserves existing hooks and settings)
 const claudeDir = resolve(cwd, ".claude");
