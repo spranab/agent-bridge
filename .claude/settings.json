@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node c:\\Users\\sync\\codes\\agent-bridge\\src\\check-inbox.js",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "AGENT_BRIDGE_WORKSPACE_ID": "agent-bridge-dev",
+    "AGENT_BRIDGE_REDIS_URL": "redis://localhost:6379"
+  }
+}

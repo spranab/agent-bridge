@@ -1,0 +1,58 @@
+{
+  "name": "mcp-agent-bridge",
+  "version": "1.0.0",
+  "description": "MCP server for real-time cross-machine communication between Claude Code instances. Redis-backed message passing, artifact sharing, and workspace coordination.",
+  "type": "module",
+  "main": "src/server.js",
+  "bin": {
+    "mcp-agent-bridge": "./src/server.js",
+    "agent-bridge": "./src/server.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "start:sse": "node src/server.js --sse",
+    "test": "node test/integration.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-code",
+    "agent",
+    "bridge",
+    "cross-machine",
+    "distributed",
+    "redis",
+    "real-time",
+    "workspace",
+    "multi-agent",
+    "collaboration",
+    "sse"
+  ],
+  "author": "Pranab Sarkar",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spranab/agent-bridge.git"
+  },
+  "homepage": "https://github.com/spranab/agent-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/spranab/agent-bridge/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "CLAUDE.md",
+    "CLAUDE_SNIPPET.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "express": "^5.2.1",
+    "ioredis": "^5.10.1",
+    "uuid": "^13.0.0"
+  }
+}
