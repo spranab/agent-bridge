@@ -9,7 +9,10 @@ Two files per workspace. Replace `YOUR_WORKSPACE_ID`.
   "mcpServers": {
     "agent-bridge": {
       "type": "sse",
-      "url": "https://agent-bridge.mcp.mycluster.cyou/sse?workspace_id=YOUR_WORKSPACE_ID"
+      "url": "https://agent-bridge.mcp.mycluster.cyou/sse",
+      "headers": {
+        "x-workspace-id": "YOUR_WORKSPACE_ID"
+      }
     }
   }
 }
@@ -36,4 +39,4 @@ Two files per workspace. Replace `YOUR_WORKSPACE_ID`.
 }
 ```
 
-The hook reads `workspace_id` from `.mcp.json` — no duplication needed.
+The hook reads `x-workspace-id` from `.mcp.json` automatically — no duplication needed.

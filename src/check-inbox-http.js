@@ -5,7 +5,14 @@
  * Works with remote deployments — no direct Redis access needed.
  *
  * Reads the agent-bridge URL and workspace_id from .mcp.json:
- *   { "mcpServers": { "agent-bridge": { "url": "https://host/sse?workspace_id=my-ws" } } }
+ *   {
+ *     "mcpServers": {
+ *       "agent-bridge": {
+ *         "url": "https://host/sse",
+ *         "headers": { "x-workspace-id": "my-workspace" }
+ *       }
+ *     }
+ *   }
  *
  * Falls back to env vars AGENT_BRIDGE_URL and AGENT_BRIDGE_WORKSPACE_ID.
  */
@@ -21,11 +28,14 @@ if (!BASE_URL || !WORKSPACE_ID) {
   try {
     const mcpPath = resolve(process.cwd(), ".mcp.json");
     const mcpConfig = JSON.parse(readFileSync(mcpPath, "utf-8"));
-    const sseUrl = mcpConfig?.mcpServers?.["agent-bridge"]?.url;
-    if (sseUrl) {
-      const parsed = new URL(sseUrl);
-      WORKSPACE_ID = WORKSPACE_ID || parsed.searchParams.get("workspace_id");
-      BASE_URL = BASE_URL || `${parsed.protocol}//${parsed.host}`;
+    const server = mcpConfig?.mcpServers?.["agent-bridge"];
+    if (server) {
+      const sseUrl = server.url;
+      WORKSPACE_ID = WORKSPACE_ID || server.headers?.["x-workspace-id"];
+      if (sseUrl) {
+        const parsed = new URL(sseUrl);
+        BASE_URL = BASE_URL || `${parsed.protocol}//${parsed.host}`;
+      }
     }
   } catch {}
 }

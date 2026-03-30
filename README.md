@@ -43,7 +43,10 @@ Add two files to your project root:
   "mcpServers": {
     "agent-bridge": {
       "type": "sse",
-      "url": "http://localhost:4100/sse?workspace_id=my-workspace"
+      "url": "http://localhost:4100/sse",
+      "headers": {
+        "x-workspace-id": "my-workspace"
+      }
     }
   }
 }
