@@ -246,6 +246,12 @@ export async function handleTool(name, args) {
       // Check for pending messages
       const inbox = await getInboxMessages(r, args.workspace_id);
 
+      // Get other active workspaces
+      const allWs = await r.hgetall("workspaces");
+      const others = Object.values(allWs)
+        .map((v) => JSON.parse(v))
+        .filter((w) => w.id !== args.workspace_id);
+
       return {
         content: [
           {
@@ -255,7 +261,21 @@ export async function handleTool(name, args) {
                 status: "registered",
                 workspace: workspace,
                 pending_messages: inbox.length,
-                messages: inbox.slice(0, 5), // Show first 5
+                messages: inbox.slice(0, 5),
+                active_workspaces: others.map((w) => ({
+                  id: w.id,
+                  description: w.description,
+                  machine: w.machine,
+                  last_active: w.last_active,
+                })),
+                instructions: {
+                  your_id: args.workspace_id,
+                  how_to_send: `send(from: "${args.workspace_id}", to: "TARGET_WORKSPACE_ID", type: "info|question|request|decision", content: "your message")`,
+                  how_to_receive: `receive("${args.workspace_id}")`,
+                  how_to_broadcast: `send(from: "${args.workspace_id}", to: "*", content: "your message")`,
+                  auto_loop: "Your inbox is checked automatically after every response via the Stop hook. If a new message arrives while you're responding, you'll see it immediately after and should process it.",
+                  behavior: "Always reply to questions. Acknowledge info/decisions. Act on requests. Retrieve shared artifacts. Use send() to communicate back — never assume the other workspace can read your text output.",
+                },
               },
               null,
               2
