@@ -198,19 +198,36 @@ async function main() {
     app.get("/sse", async (req, res) => {
       const transport = new SSEServerTransport("/messages", res);
       const server = createServer();
+      const wsId = req.headers["x-workspace-id"];
 
-      sessions[transport.sessionId] = { transport, server };
+      sessions[transport.sessionId] = { transport, server, wsId };
 
-      // Push resource updates to this client on new messages
-      const unsubscribe = onMessage((msg) => {
+      // Push messages to this client in real-time
+      const unsubscribe = onMessage(async (msg) => {
+        // Only push if this message is for this workspace (or broadcast)
+        const isForMe = msg.to === wsId || (msg.to === "*" && msg.from !== wsId);
+        if (!isForMe) return;
+
+        // Try sampling: ask Claude to process the message
         try {
-          if (msg.to === "*") {
-            server.sendResourceUpdated({ uri: "agent-bridge://status" });
-            server.sendResourceListChanged();
-          } else {
-            server.sendResourceUpdated({ uri: `agent-bridge://inbox/${msg.to}` });
-          }
-        } catch {}
+          await server.createMessage({
+            messages: [
+              {
+                role: "user",
+                content: {
+                  type: "text",
+                  text: `[AGENT BRIDGE] New message from "${msg.from}" (${msg.type}): ${msg.content}\n\nProcess this message: call receive("${wsId}") to mark as read, then respond appropriately using send().`,
+                },
+              },
+            ],
+            maxTokens: 1024,
+          });
+        } catch {
+          // Sampling not supported — fall back to resource notifications
+          try {
+            server.sendResourceUpdated({ uri: `agent-bridge://inbox/${wsId}` });
+          } catch {}
+        }
       });
 
       res.on("close", () => {
