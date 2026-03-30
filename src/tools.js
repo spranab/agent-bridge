@@ -10,6 +10,10 @@ const messageCallbacks = [];
 
 export function onMessage(cb) {
   messageCallbacks.push(cb);
+  return () => {
+    const idx = messageCallbacks.indexOf(cb);
+    if (idx !== -1) messageCallbacks.splice(idx, 1);
+  };
 }
 
 export function setupSubscriber() {

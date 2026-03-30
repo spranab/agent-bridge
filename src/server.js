@@ -8,6 +8,8 @@ import {
   CallToolRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import express from "express";
 import { connect, disconnect, getRedis } from "./redis.js";
@@ -16,16 +18,62 @@ import { toolDefinitions, handleTool, setupSubscriber, onMessage } from "./tools
 const useSSE = process.argv.includes("--sse");
 const PORT = parseInt(process.env.AGENT_BRIDGE_PORT || "4100", 10);
 
-async function main() {
-  await connect();
-  setupSubscriber();
+const GUIDE_PROMPT = `# Agent Bridge — Cross-Workspace Communication
 
+You are connected to Agent Bridge, a real-time communication layer between Claude Code instances across machines and workspaces.
+
+## Your Identity
+Your workspace_id is provided by the user's hook or must be set via register(). Check the conversation context for a line like "AGENT BRIDGE: Your workspace_id is ...". Use that ID for all tool calls.
+
+## Mandatory Workflow
+
+1. **FIRST THING every conversation**: Call \`register\` with your workspace_id, a description of what you're working on, and the machine name. Then call \`receive\` to check for pending messages.
+
+2. **Before starting any task**: Call \`receive\` — another agent may have sent critical context.
+
+3. **After completing significant work**: Call \`send\` to notify other workspaces. Include specifics: API endpoints, schemas, file paths, decisions made.
+
+4. **When you change a shared interface or schema**: Call \`share_artifact\` so other workspaces can consume it.
+
+5. **When switching tasks**: Call \`update_status\` with what you're now working on.
+
+## Tools Available
+- \`register(workspace_id, description, machine)\` — announce yourself
+- \`send(from, to, content, type, priority)\` — message a workspace or broadcast (to="*")
+- \`receive(workspace_id)\` — read pending messages
+- \`status()\` — see all workspaces and what they're doing
+- \`update_status(workspace_id, description, progress)\` — update your current task
+- \`share_artifact(from, name, type, content, description)\` — share code/schemas/configs
+- \`get_artifact(name)\` — retrieve a shared artifact
+- \`list_artifacts()\` — list all shared artifacts
+
+## Message Types
+Use \`type\` when sending: "info", "request", "question", "answer", "decision", "artifact"
+
+## Priority
+Use \`priority\`: "low", "normal", "high", "urgent"
+
+## Example
+\`\`\`
+register("my-workspace", "Building REST API for users", "desktop")
+receive("my-workspace")
+// ... do work ...
+send({from: "my-workspace", to: "*", type: "info", content: "POST /api/users is live"})
+share_artifact({from: "my-workspace", name: "user-schema", type: "schema", content: "..."})
+\`\`\``;
+
+/**
+ * Creates a new MCP Server instance with all handlers registered.
+ * Each SSE connection gets its own instance (MCP SDK requirement).
+ */
+function createServer() {
   const server = new Server(
     { name: "agent-bridge", version: "1.0.0" },
     {
       capabilities: {
         tools: {},
         resources: { subscribe: true, listChanged: true },
+        prompts: {},
       },
     }
   );
@@ -40,7 +88,33 @@ async function main() {
     return handleTool(name, args || {});
   });
 
-  // --- Resources: expose each workspace's inbox as a live resource ---
+  // --- Prompts ---
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: [
+      {
+        name: "agent-bridge-guide",
+        description:
+          "How to use Agent Bridge for cross-workspace communication",
+      },
+    ],
+  }));
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    if (request.params.name === "agent-bridge-guide") {
+      return {
+        description: "Agent Bridge usage guide",
+        messages: [
+          {
+            role: "user",
+            content: { type: "text", text: GUIDE_PROMPT },
+          },
+        ],
+      };
+    }
+    throw new Error(`Unknown prompt: ${request.params.name}`);
+  });
+
+  // --- Resources ---
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
     const r = getRedis();
     const raw = await r.hgetall("workspaces");
@@ -50,7 +124,6 @@ async function main() {
       description: `Pending messages for workspace "${wsId}". Subscribe for real-time updates.`,
       mimeType: "application/json",
     }));
-    // Also expose a global status resource
     resources.push({
       uri: "agent-bridge://status",
       name: "Bridge Status",
@@ -77,13 +150,7 @@ async function main() {
         ws.pending_messages = await r.llen(`inbox:${ws.id}`);
       }
       return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify({ workspaces }, null, 2),
-          },
-        ],
+        contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ workspaces }, null, 2) }],
       };
     }
 
@@ -94,13 +161,7 @@ async function main() {
         return { name: a.name, type: a.type, description: a.description, shared_by: a.shared_by, shared_at: a.shared_at };
       });
       return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify({ artifacts }, null, 2),
-          },
-        ],
+        contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ artifacts }, null, 2) }],
       };
     }
 
@@ -110,56 +171,55 @@ async function main() {
       const raw = await r.lrange(`inbox:${wsId}`, 0, -1);
       const messages = raw.map((m) => JSON.parse(m)).reverse();
       return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify({ workspace: wsId, messages }, null, 2),
-          },
-        ],
+        contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ workspace: wsId, messages }, null, 2) }],
       };
     }
 
     throw new Error(`Unknown resource: ${uri}`);
   });
 
-  // --- Real-time: when Redis pub/sub fires, notify connected clients ---
-  onMessage((msg) => {
-    // Notify that the target workspace's inbox resource was updated
-    try {
-      if (msg.to === "*") {
-        // Broadcast — notify all inbox resources + status
-        server.sendResourceUpdated({ uri: "agent-bridge://status" });
-        // We don't know all workspace IDs here easily, so trigger list changed
-        server.sendResourceListChanged();
-      } else {
-        server.sendResourceUpdated({
-          uri: `agent-bridge://inbox/${msg.to}`,
-        });
-      }
-    } catch {
-      // Client may not be subscribed, ignore
-    }
-  });
+  return server;
+}
+
+async function main() {
+  await connect();
+  setupSubscriber();
 
   if (useSSE) {
     const app = express();
-    const transports = {};
+    const sessions = {}; // sessionId -> { transport, server }
 
     app.get("/sse", async (req, res) => {
       const transport = new SSEServerTransport("/messages", res);
-      transports[transport.sessionId] = transport;
-      res.on("close", () => {
-        delete transports[transport.sessionId];
+      const server = createServer();
+
+      sessions[transport.sessionId] = { transport, server };
+
+      // Push resource updates to this client on new messages
+      const unsubscribe = onMessage((msg) => {
+        try {
+          if (msg.to === "*") {
+            server.sendResourceUpdated({ uri: "agent-bridge://status" });
+            server.sendResourceListChanged();
+          } else {
+            server.sendResourceUpdated({ uri: `agent-bridge://inbox/${msg.to}` });
+          }
+        } catch {}
       });
+
+      res.on("close", () => {
+        unsubscribe();
+        delete sessions[transport.sessionId];
+      });
+
       await server.connect(transport);
     });
 
     app.post("/messages", async (req, res) => {
       const sessionId = req.query.sessionId;
-      const transport = transports[sessionId];
-      if (transport) {
-        await transport.handlePostMessage(req, res);
+      const session = sessions[sessionId];
+      if (session) {
+        await session.transport.handlePostMessage(req, res);
       } else {
         res.status(404).json({ error: "Session not found" });
       }
@@ -187,18 +247,30 @@ async function main() {
       res.json({
         status: "ok",
         mode: "sse",
-        connections: Object.keys(transports).length,
+        connections: Object.keys(sessions).length,
       });
     });
 
     app.listen(PORT, () => {
-      console.error(
-        `Agent Bridge MCP server (SSE) listening on http://0.0.0.0:${PORT}`
-      );
+      console.error(`Agent Bridge MCP server (SSE) listening on http://0.0.0.0:${PORT}`);
       console.error(`  SSE endpoint:  http://localhost:${PORT}/sse`);
       console.error(`  Health check:  http://localhost:${PORT}/health`);
     });
   } else {
+    // Stdio mode: single client
+    const server = createServer();
+
+    onMessage((msg) => {
+      try {
+        if (msg.to === "*") {
+          server.sendResourceUpdated({ uri: "agent-bridge://status" });
+          server.sendResourceListChanged();
+        } else {
+          server.sendResourceUpdated({ uri: `agent-bridge://inbox/${msg.to}` });
+        }
+      } catch {}
+    });
+
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("Agent Bridge MCP server (stdio) connected");
