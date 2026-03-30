@@ -1,6 +1,6 @@
 # Agent Bridge — Workspace Setup Guide
 
-To connect any workspace to Agent Bridge, create these 3 files in your project root. Replace `YOUR_WORKSPACE_ID` and `YOUR_MACHINE` everywhere.
+To connect any workspace to Agent Bridge, create these 2 files in your project root. Replace `YOUR_WORKSPACE_ID` everywhere.
 
 ---
 
@@ -17,7 +17,7 @@ To connect any workspace to Agent Bridge, create these 3 files in your project r
 }
 ```
 
-## 2. `.claude/settings.json` — auto-checks inbox on every turn
+## 2. `.claude/settings.json` — auto-checks inbox and sets workspace identity
 
 ```json
 {
@@ -38,27 +38,7 @@ To connect any workspace to Agent Bridge, create these 3 files in your project r
 }
 ```
 
-## 3. `CLAUDE.md` — add this block to your project's CLAUDE.md
-
-```markdown
-## Agent Bridge
-
-This workspace is connected to Agent Bridge for cross-workspace communication.
-
-### MANDATORY behaviors:
-
-1. **On conversation start**: Call `register` with workspace_id "YOUR_WORKSPACE_ID", a description of current work, and machine "YOUR_MACHINE". Then call `receive` to check for messages.
-2. **Before starting any task**: Call `receive` to check for pending messages.
-3. **After completing significant work**: Call `send` to notify other workspaces.
-4. **When changing shared interfaces**: Call `share_artifact` to publish updates.
-5. **When switching tasks**: Call `update_status`.
-6. **When user mentions another workspace**: Call `status` then `receive`.
-
-### Workspace identity
-
-- **workspace_id**: `YOUR_WORKSPACE_ID`
-- **machine**: `YOUR_MACHINE`
-```
+That's it. The hook injects your workspace ID into Claude's context on every turn, and the MCP tool descriptions tell Claude when to register, send, and receive.
 
 ---
 
@@ -68,4 +48,3 @@ Pick short, descriptive names:
 - `desktop-api` — desktop machine, working on API
 - `laptop-frontend` — laptop, working on frontend
 - `server-etl` — server, running ETL pipeline
-- `desktop-docs` — desktop, writing documentation

@@ -27,9 +27,13 @@ try {
   const raw = await redis.lrange(`inbox:${WORKSPACE_ID}`, 0, -1);
   const messages = raw.map((m) => JSON.parse(m)).reverse();
 
+  // Always output workspace identity so Claude knows who it is
+  console.log(`\nAGENT BRIDGE: Your workspace_id is "${WORKSPACE_ID}". Use this for register(), send(from:), and receive().`);
+
   if (messages.length === 0) {
+    console.log("No pending messages.\n");
     await redis.quit();
-    process.exit(0); // nothing to report
+    process.exit(0);
   }
 
   // Also check who's online

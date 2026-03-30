@@ -21,7 +21,13 @@ try {
   const data = await res.json();
   const messages = data.messages || [];
 
-  if (messages.length === 0) process.exit(0);
+  // Always output workspace identity so Claude knows who it is
+  console.log(`\nAGENT BRIDGE: Your workspace_id is "${WORKSPACE_ID}". Use this for register(), send(from:), and receive().`);
+
+  if (messages.length === 0) {
+    console.log("No pending messages.\n");
+    process.exit(0);
+  }
 
   // Get workspace status
   let workspaces = [];
