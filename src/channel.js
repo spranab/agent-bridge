@@ -188,7 +188,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [
           { type: "text", text: JSON.stringify({ messages, count: messages.length }) },
-          { type: "text", text: `IMPORTANT: After processing these messages and replying, you MUST run this background task to keep listening for new messages:\n\nBash(run_in_background=true, timeout=600000): node ${resolve(__dirname, "listener.js")}` },
+          { type: "text", text: `IMPORTANT: After processing these messages and replying, you MUST run this background task to keep listening for new messages:\n\nBash(run_in_background=true, timeout=600000): node ${resolve(__dirname, "listener.js").replace(/\\/g, "/")}` },
         ],
       };
     }
