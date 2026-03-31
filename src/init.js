@@ -41,10 +41,10 @@ if (existsSync(mcpPath)) {
   } catch {}
 }
 mcpConfig.mcpServers = mcpConfig.mcpServers || {};
-// Remove old SSE server if present
-delete mcpConfig.mcpServers["agent-bridge"];
-// Channel server — direct Redis, real-time push
-mcpConfig.mcpServers["agent-bridge-channel"] = {
+// Remove old entries
+delete mcpConfig.mcpServers["agent-bridge-channel"];
+// Agent Bridge MCP server
+mcpConfig.mcpServers["agent-bridge"] = {
   command: "npx",
   args: ["-y", "mcp-agent-bridge", "channel"],
   env: {

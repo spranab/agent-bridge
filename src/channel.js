@@ -12,8 +12,8 @@
  * Config is read from .mcp.json (x-workspace-id header) or env vars.
  *
  * Usage:
- *   claude --channels server:agent-bridge-channel
- *   claude --dangerously-load-development-channels server:agent-bridge-channel
+ *   claude --channels server:agent-bridge
+ *   claude --dangerously-load-development-channels server:agent-bridge
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -55,11 +55,11 @@ if (!WORKSPACE_ID) {
 }
 
 if (!WORKSPACE_ID) {
-  console.error("agent-bridge-channel: No workspace_id found. Set AGENT_BRIDGE_WORKSPACE_ID or configure .mcp.json");
+  console.error("agent-bridge: No workspace_id found. Set AGENT_BRIDGE_WORKSPACE_ID or configure .mcp.json");
   process.exit(1);
 }
 
-console.error(`agent-bridge-channel: workspace=${WORKSPACE_ID}, redis=${REDIS_URL}`);
+console.error(`agent-bridge: workspace=${WORKSPACE_ID}, redis=${REDIS_URL}`);
 
 // --- Redis connections ---
 const redis = new Redis(REDIS_URL, { keyPrefix: KEY_PREFIX });
@@ -68,7 +68,7 @@ const subscriber = new Redis(REDIS_URL);
 
 // --- MCP Server (Channel) ---
 const mcp = new Server(
-  { name: "agent-bridge-channel", version: "1.0.0" },
+  { name: "agent-bridge", version: "1.0.0" },
   {
     capabilities: {
       experimental: { "claude/channel": {} },
@@ -76,7 +76,7 @@ const mcp = new Server(
     },
     instructions: `You are connected to Agent Bridge, a real-time communication layer between Claude Code instances.
 
-Your workspace_id is "${WORKSPACE_ID}". Messages from other workspaces arrive as <channel source="agent-bridge-channel"> events.
+Your workspace_id is "${WORKSPACE_ID}". Messages from other workspaces arrive as <channel source="agent-bridge"> events.
 
 When you receive a channel event:
 1. Read the message content and metadata (from, type, priority)
@@ -236,9 +236,9 @@ const channelBroadcast = `${WS_CHANNEL_PREFIX}broadcast`;
 
 subscriber.subscribe(channelDirect, channelBroadcast, (err) => {
   if (err) {
-    console.error("agent-bridge-channel: Redis subscribe error:", err.message);
+    console.error("agent-bridge: Redis subscribe error:", err.message);
   } else {
-    console.error(`agent-bridge-channel: Subscribed to ${channelDirect} and ${channelBroadcast}`);
+    console.error(`agent-bridge: Subscribed to ${channelDirect} and ${channelBroadcast}`);
   }
 });
 
@@ -249,7 +249,7 @@ subscriber.on("message", async (channel, raw) => {
     // Skip own broadcasts
     if (channel === channelBroadcast && msg.from === WORKSPACE_ID) return;
 
-    console.error(`agent-bridge-channel: [${WORKSPACE_ID}] ← ${msg.from} (${msg.type})`);
+    console.error(`agent-bridge: [${WORKSPACE_ID}] ← ${msg.from} (${msg.type})`);
 
     // Push to Claude as a channel notification
     const prio = msg.priority === "high" || msg.priority === "urgent" ? ` [${msg.priority.toUpperCase()}]` : "";
@@ -267,14 +267,14 @@ subscriber.on("message", async (channel, raw) => {
       },
     });
   } catch (err) {
-    console.error("agent-bridge-channel: notification error:", err.message);
+    console.error("agent-bridge: notification error:", err.message);
   }
 });
 
 // --- Connect ---
 const transport = new StdioServerTransport();
 await mcp.connect(transport);
-console.error("agent-bridge-channel: Connected and listening");
+console.error("agent-bridge: Connected and listening");
 
 // --- Auto-register ---
 const workspace = {
@@ -285,7 +285,7 @@ const workspace = {
   last_active: new Date().toISOString(),
 };
 await redis.hset("workspaces", WORKSPACE_ID, JSON.stringify(workspace));
-console.error(`agent-bridge-channel: Auto-registered as ${WORKSPACE_ID}`);
+console.error(`agent-bridge: Auto-registered as ${WORKSPACE_ID}`);
 
 process.on("SIGINT", async () => {
   await redis.quit();

@@ -2,7 +2,11 @@
   "mcpServers": {
     "agent-bridge-channel": {
       "command": "npx",
-      "args": ["-y", "mcp-agent-bridge", "channel"],
+      "args": [
+        "-y",
+        "mcp-agent-bridge",
+        "channel"
+      ],
       "env": {
         "AGENT_BRIDGE_REDIS_URL": "redis://192.168.4.161:30379",
         "AGENT_BRIDGE_WORKSPACE_ID": "agent-bridge-dev"

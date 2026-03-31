@@ -6,7 +6,7 @@
  *
  * Supports two sources:
  *   1. HTTP API (from agent-bridge SSE server URL in .mcp.json)
- *   2. Direct Redis (from agent-bridge-channel env in .mcp.json)
+ *   2. Direct Redis (from agent-bridge env in .mcp.json)
  *
  * Two modes based on AGENT_BRIDGE_HOOK_MODE env var:
  *   "stop"   → outputs JSON {decision:"block", reason:"..."} to force Claude to continue
@@ -36,7 +36,7 @@ if (!BASE_URL || !WORKSPACE_ID) {
     }
 
     // Try channel config
-    const channel = mcpConfig?.mcpServers?.["agent-bridge-channel"];
+    const channel = mcpConfig?.mcpServers?.["agent-bridge"];
     if (channel?.env) {
       WORKSPACE_ID = WORKSPACE_ID || channel.env.AGENT_BRIDGE_WORKSPACE_ID;
       REDIS_URL = REDIS_URL || channel.env.AGENT_BRIDGE_REDIS_URL;
