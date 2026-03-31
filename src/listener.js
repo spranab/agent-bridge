@@ -41,7 +41,7 @@ await sub.subscribe(
   `${WS_CHANNEL_PREFIX}broadcast`
 );
 
-sub.on("message", async (ch, raw) => {
+sub.on("message", async (_ch, raw) => {
   try {
     const msg = JSON.parse(raw);
     if (msg.from === WORKSPACE_ID) return;

@@ -1,34 +1,19 @@
 #!/usr/bin/env node
 
 /**
- * Agent Bridge Channel — real-time push notifications for Claude Code.
+ * Agent Bridge — MCP server for real-time cross-workspace communication.
  *
- * This is a Claude Code channel (MCP server with claude/channel capability).
- * It subscribes to this workspace's Redis pub/sub channel and pushes incoming
- * messages directly into Claude's conversation as channel events.
- *
- * Claude can reply via the `bridge_send` tool, which publishes back to Redis.
- *
- * Config is read from .mcp.json (x-workspace-id header) or env vars.
- *
- * Usage:
- *   claude --channels server:agent-bridge
- *   claude --dangerously-load-development-channels server:agent-bridge
+ * Uses McpServer with experimental task support for a persistent bridge_listen
+ * tool that polls Redis pub/sub and completes when a message arrives.
  */
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
 import Redis from "ioredis";
 import { readFileSync } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { resolve } from "path";
 import { v4 as uuidv4 } from "uuid";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { z } from "zod";
 
 // --- Config ---
 const REDIS_URL = process.env.AGENT_BRIDGE_REDIS_URL || "redis://localhost:6379";
@@ -36,21 +21,13 @@ const KEY_PREFIX = process.env.AGENT_BRIDGE_PREFIX || "agent-bridge:";
 const WS_CHANNEL_PREFIX = "agent-bridge:ws:";
 
 let WORKSPACE_ID = process.env.AGENT_BRIDGE_WORKSPACE_ID;
-let BRIDGE_URL = process.env.AGENT_BRIDGE_URL;
 
-// Read from .mcp.json if not set
 if (!WORKSPACE_ID) {
   try {
     const mcpPath = resolve(process.cwd(), ".mcp.json");
     const mcpConfig = JSON.parse(readFileSync(mcpPath, "utf-8"));
-    const server = mcpConfig?.mcpServers?.["agent-bridge"];
-    if (server) {
-      WORKSPACE_ID = server.headers?.["x-workspace-id"];
-      if (server.url) {
-        const parsed = new URL(server.url);
-        BRIDGE_URL = BRIDGE_URL || `${parsed.protocol}//${parsed.host}`;
-      }
-    }
+    const bridge = mcpConfig?.mcpServers?.["agent-bridge"];
+    if (bridge?.env) WORKSPACE_ID = bridge.env.AGENT_BRIDGE_WORKSPACE_ID;
   } catch {}
 }
 
@@ -61,31 +38,72 @@ if (!WORKSPACE_ID) {
 
 console.error(`agent-bridge: workspace=${WORKSPACE_ID}, redis=${REDIS_URL}`);
 
-// --- Redis connections ---
+// --- Redis ---
 const redis = new Redis(REDIS_URL, { keyPrefix: KEY_PREFIX });
-const publisher = new Redis(REDIS_URL); // separate connection for PUBLISH (can't publish on subscriber)
+const publisher = new Redis(REDIS_URL);
 const subscriber = new Redis(REDIS_URL);
 
-// --- MCP Server (Channel) ---
-const mcp = new Server(
+// --- In-memory message buffer for task-based listening ---
+let pendingMessage = null;
+let messageResolve = null;
+
+function waitForMessage() {
+  if (pendingMessage) {
+    const msg = pendingMessage;
+    pendingMessage = null;
+    return Promise.resolve(msg);
+  }
+  return new Promise((resolve) => {
+    messageResolve = resolve;
+  });
+}
+
+// Subscribe to workspace channels
+await subscriber.subscribe(
+  `${WS_CHANNEL_PREFIX}${WORKSPACE_ID}`,
+  `${WS_CHANNEL_PREFIX}broadcast`
+);
+
+subscriber.on("message", (_ch, raw) => {
+  try {
+    const msg = JSON.parse(raw);
+    if (msg.from === WORKSPACE_ID) return;
+
+    console.error(`agent-bridge: [${WORKSPACE_ID}] ← ${msg.from} (${msg.type})`);
+
+    if (messageResolve) {
+      const resolve = messageResolve;
+      messageResolve = null;
+      resolve(msg);
+    } else {
+      pendingMessage = msg;
+    }
+  } catch {}
+});
+
+console.error(`agent-bridge: Subscribed to ${WS_CHANNEL_PREFIX}${WORKSPACE_ID}`);
+
+// --- MCP Server ---
+const mcp = new McpServer(
   { name: "agent-bridge", version: "1.0.0" },
   {
     capabilities: {
       experimental: { "claude/channel": {} },
-      tools: {},
     },
     instructions: `You are connected to Agent Bridge, a real-time communication layer between Claude Code instances.
 
 Your workspace_id is "${WORKSPACE_ID}".
 
-## CRITICAL: Start the background listener at the beginning of every conversation:
-Bash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen
-
-The listener runs persistently and writes incoming messages to a queue file. The UserPromptSubmit hook reads the queue on each turn — so messages appear automatically.
+## CRITICAL: Call bridge_listen at the start of every conversation.
+bridge_listen is a long-running task that waits for messages from other workspaces.
+When a message arrives, it completes and returns the message. You MUST then:
+1. Process the message (reply, acknowledge, etc.)
+2. Call bridge_listen again to wait for the next message.
 
 ## Tools
+- bridge_listen — LONG-RUNNING: waits for next message (call this first!)
 - bridge_send — send a message to another workspace (or to="*" for broadcast)
-- bridge_receive — read and mark messages as read
+- bridge_receive — read and mark all pending messages as read
 - bridge_status — see all active workspaces
 - bridge_register — register/update your workspace description
 
@@ -93,195 +111,146 @@ IMPORTANT: Always use bridge_send to communicate — other workspaces cannot see
   }
 );
 
-// --- Tools for Claude to use ---
-mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: "bridge_send",
-      description: "Send a message to another workspace or broadcast to all. Use this to reply to channel events.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          to: { type: "string", description: 'Target workspace_id or "*" for broadcast' },
-          content: { type: "string", description: "Message content" },
-          type: {
-            type: "string",
-            enum: ["info", "request", "decision", "artifact", "question", "answer"],
-            description: "Message type",
-          },
-          priority: {
-            type: "string",
-            enum: ["low", "normal", "high", "urgent"],
-            description: "Priority (default: normal)",
-          },
-        },
-        required: ["to", "content"],
-      },
-    },
-    {
-      name: "bridge_receive",
-      description: "Read and mark pending messages as read.",
-      inputSchema: {
-        type: "object",
-        properties: {},
-      },
-    },
-    {
-      name: "bridge_status",
-      description: "See all registered workspaces and what they're working on.",
-      inputSchema: {
-        type: "object",
-        properties: {},
-      },
-    },
-    {
-      name: "bridge_register",
-      description: "Register/update this workspace's description. Call at conversation start.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          description: { type: "string", description: "What you're currently working on" },
-        },
-        required: ["description"],
-      },
-    },
-  ],
-}));
+// --- Regular tools ---
+mcp.tool(
+  "bridge_send",
+  "Send a message to another workspace or broadcast to all.",
+  {
+    to: z.string().describe('Target workspace_id or "*" for broadcast'),
+    content: z.string().describe("Message content"),
+    type: z.enum(["info", "request", "decision", "artifact", "question", "answer"]).optional().describe("Message type"),
+    priority: z.enum(["low", "normal", "high", "urgent"]).optional().describe("Priority"),
+  },
+  async (args) => {
+    const msg = {
+      id: uuidv4(),
+      from: WORKSPACE_ID,
+      to: args.to,
+      type: args.type || "info",
+      content: args.content,
+      metadata: {},
+      priority: args.priority || "normal",
+      timestamp: new Date().toISOString(),
+      read: false,
+    };
 
-mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  switch (name) {
-    case "bridge_send": {
-      const msg = {
-        id: uuidv4(),
-        from: WORKSPACE_ID,
-        to: args.to,
-        type: args.type || "info",
-        content: args.content,
-        metadata: {},
-        priority: args.priority || "normal",
-        timestamp: new Date().toISOString(),
-        read: false,
-      };
-
-      // Store in inbox
-      if (args.to === "*") {
-        const workspaces = await redis.hgetall("workspaces");
-        for (const wsId of Object.keys(workspaces)) {
-          if (wsId !== WORKSPACE_ID) {
-            await redis.lpush(`inbox:${wsId}`, JSON.stringify(msg));
-            await redis.expire(`inbox:${wsId}`, 86400);
-          }
+    if (args.to === "*") {
+      const workspaces = await redis.hgetall("workspaces");
+      for (const wsId of Object.keys(workspaces)) {
+        if (wsId !== WORKSPACE_ID) {
+          await redis.lpush(`inbox:${wsId}`, JSON.stringify(msg));
+          await redis.expire(`inbox:${wsId}`, 86400);
         }
-        await publisher.publish(`${WS_CHANNEL_PREFIX}broadcast`, JSON.stringify(msg));
-      } else {
-        await redis.lpush(`inbox:${args.to}`, JSON.stringify(msg));
-        await redis.expire(`inbox:${args.to}`, 86400);
-        await publisher.publish(`${WS_CHANNEL_PREFIX}${args.to}`, JSON.stringify(msg));
       }
-
-      return {
-        content: [{ type: "text", text: JSON.stringify({ status: "sent", to: args.to, message_id: msg.id }) }],
-      };
+      await publisher.publish(`${WS_CHANNEL_PREFIX}broadcast`, JSON.stringify(msg));
+    } else {
+      await redis.lpush(`inbox:${args.to}`, JSON.stringify(msg));
+      await redis.expire(`inbox:${args.to}`, 86400);
+      await publisher.publish(`${WS_CHANNEL_PREFIX}${args.to}`, JSON.stringify(msg));
     }
 
-    case "bridge_receive": {
-      const raw = await redis.lrange(`inbox:${WORKSPACE_ID}`, 0, -1);
-      const messages = raw.map((m) => JSON.parse(m)).reverse();
-      await redis.del(`inbox:${WORKSPACE_ID}`);
-      return {
-        content: [
-          { type: "text", text: JSON.stringify({ messages, count: messages.length }) },
-        ],
-      };
-    }
-
-    case "bridge_status": {
-      const raw = await redis.hgetall("workspaces");
-      const workspaces = Object.values(raw).map((v) => JSON.parse(v));
-      for (const ws of workspaces) {
-        ws.pending_messages = await redis.llen(`inbox:${ws.id}`);
-      }
-      return {
-        content: [{ type: "text", text: JSON.stringify({ workspaces }) }],
-      };
-    }
-
-    case "bridge_register": {
-      const workspace = {
-        id: WORKSPACE_ID,
-        description: args.description || "",
-        machine: (await import("os")).hostname(),
-        registered_at: new Date().toISOString(),
-        last_active: new Date().toISOString(),
-      };
-      await redis.hset("workspaces", WORKSPACE_ID, JSON.stringify(workspace));
-      await redis.expire("workspaces", 7200);
-
-      const allWs = await redis.hgetall("workspaces");
-      const others = Object.values(allWs)
-        .map((v) => JSON.parse(v))
-        .filter((w) => w.id !== WORKSPACE_ID);
-
-      return {
-        content: [
-          { type: "text", text: JSON.stringify({ status: "registered", workspace, active_workspaces: others }) },
-          { type: "text", text: `⚠ START LISTENER NOW — run this background task to receive real-time messages:\n\nBash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen\n\nWithout the listener, you will NOT receive messages until you manually check.` },
-        ],
-      };
-    }
-
-    default:
-      return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
+    return { content: [{ type: "text", text: JSON.stringify({ status: "sent", to: args.to, message_id: msg.id }) }] };
   }
-});
+);
 
-// --- Subscribe to workspace channel + broadcast ---
-const channelDirect = `${WS_CHANNEL_PREFIX}${WORKSPACE_ID}`;
-const channelBroadcast = `${WS_CHANNEL_PREFIX}broadcast`;
-
-subscriber.subscribe(channelDirect, channelBroadcast, (err) => {
-  if (err) {
-    console.error("agent-bridge: Redis subscribe error:", err.message);
-  } else {
-    console.error(`agent-bridge: Subscribed to ${channelDirect} and ${channelBroadcast}`);
+mcp.tool(
+  "bridge_receive",
+  "Read and mark all pending messages as read.",
+  {},
+  async () => {
+    const raw = await redis.lrange(`inbox:${WORKSPACE_ID}`, 0, -1);
+    const messages = raw.map((m) => JSON.parse(m)).reverse();
+    await redis.del(`inbox:${WORKSPACE_ID}`);
+    return { content: [{ type: "text", text: JSON.stringify({ messages, count: messages.length }) }] };
   }
-});
+);
 
-subscriber.on("message", async (channel, raw) => {
-  try {
-    const msg = JSON.parse(raw);
-
-    // Skip own broadcasts
-    if (channel === channelBroadcast && msg.from === WORKSPACE_ID) return;
-
-    console.error(`agent-bridge: [${WORKSPACE_ID}] ← ${msg.from} (${msg.type})`);
-
-    // Push to Claude as a channel notification
-    const prio = msg.priority === "high" || msg.priority === "urgent" ? ` [${msg.priority.toUpperCase()}]` : "";
-    await mcp.notification({
-      method: "notifications/claude/channel",
-      params: {
-        content: msg.content,
-        meta: {
-          from: msg.from,
-          type: msg.type || "info",
-          priority: msg.priority || "normal",
-          message_id: msg.id,
-          timestamp: msg.timestamp,
-        },
-      },
-    });
-  } catch (err) {
-    console.error("agent-bridge: notification error:", err.message);
+mcp.tool(
+  "bridge_status",
+  "See all registered workspaces and what they're working on.",
+  {},
+  async () => {
+    const raw = await redis.hgetall("workspaces");
+    const workspaces = Object.values(raw).map((v) => JSON.parse(v));
+    for (const ws of workspaces) {
+      ws.pending_messages = await redis.llen(`inbox:${ws.id}`);
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ workspaces }) }] };
   }
-});
+);
 
-// --- Connect ---
-const transport = new StdioServerTransport();
-await mcp.connect(transport);
-console.error("agent-bridge: Connected and listening");
+mcp.tool(
+  "bridge_register",
+  "Register/update this workspace's description. Call at conversation start.",
+  {
+    description: z.string().describe("What you're currently working on"),
+  },
+  async (args) => {
+    const workspace = {
+      id: WORKSPACE_ID,
+      description: args.description || "",
+      machine: (await import("os")).hostname(),
+      registered_at: new Date().toISOString(),
+      last_active: new Date().toISOString(),
+    };
+    await redis.hset("workspaces", WORKSPACE_ID, JSON.stringify(workspace));
+    await redis.expire("workspaces", 7200);
+
+    const allWs = await redis.hgetall("workspaces");
+    const others = Object.values(allWs)
+      .map((v) => JSON.parse(v))
+      .filter((w) => w.id !== WORKSPACE_ID);
+
+    return {
+      content: [
+        { type: "text", text: JSON.stringify({ status: "registered", workspace, active_workspaces: others }) },
+        { type: "text", text: "Now call bridge_listen to start receiving real-time messages." },
+      ],
+    };
+  }
+);
+
+// --- Task-based bridge_listen tool ---
+mcp.experimental.tasks.registerToolTask(
+  "bridge_listen",
+  {
+    description: "Wait for the next message from another workspace. This is a long-running task that completes when a message arrives. Call this at the start of every conversation and after processing each message.",
+    execution: { taskSupport: "required" },
+  },
+  {
+    createTask: async (extra) => {
+      const task = await extra.taskStore.createTask({
+        ttl: 600000, // 10 min
+        pollInterval: 1000, // poll every 1 second
+      });
+
+      // Wait for message in background
+      waitForMessage().then(async (msg) => {
+        const prio = msg.priority === "high" || msg.priority === "urgent" ? ` [${msg.priority.toUpperCase()}]` : "";
+        const result = {
+          content: [
+            {
+              type: "text",
+              text: `New message from "${msg.from}"${prio} (${msg.type}): ${msg.content}\n\nYou MUST:\n1. Call bridge_receive() to mark as read\n2. Reply with bridge_send(to: "${msg.from}", ...)\n3. Call bridge_listen again to wait for the next message`,
+            },
+          ],
+        };
+        await extra.taskStore.storeTaskResult(task.taskId, "completed", result);
+      });
+
+      return { task };
+    },
+
+    getTask: async (_args, extra) => {
+      const task = await extra.taskStore.getTask(extra.taskId);
+      return task || { taskId: extra.taskId, status: "working", createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
+    },
+
+    getTaskResult: async (_args, extra) => {
+      return await extra.taskStore.getTaskResult(extra.taskId);
+    },
+  }
+);
 
 // --- Auto-register ---
 const workspace = {
@@ -293,6 +262,11 @@ const workspace = {
 };
 await redis.hset("workspaces", WORKSPACE_ID, JSON.stringify(workspace));
 console.error(`agent-bridge: Auto-registered as ${WORKSPACE_ID}`);
+
+// --- Connect ---
+const transport = new StdioServerTransport();
+await mcp.connect(transport);
+console.error("agent-bridge: Connected and listening");
 
 process.on("SIGINT", async () => {
   await redis.quit();
