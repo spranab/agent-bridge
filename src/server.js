@@ -20,13 +20,16 @@ if (cmd === "init") {
   await import("./listener.js");
 } else if (cmd === "check") {
   await import("./check-inbox-http.js");
+} else if (cmd === "status") {
+  await import("./status.js");
 } else {
   console.log("SwarmCode — real-time networking between Claude Code instances\n");
   console.log("Usage:");
   console.log("  swarmcode init <workspace-id> --redis <redis-url>");
   console.log("  swarmcode channel    (MCP server — spawned by Claude Code)");
   console.log("  swarmcode listen     (background Redis listener)");
-  console.log("  swarmcode check      (quick inbox check for hooks)\n");
+  console.log("  swarmcode check      (quick inbox check for hooks)");
+  console.log("  swarmcode status     (show all workspaces and pending messages)\n");
   console.log("Quick start:");
   console.log("  npm install -g swarmcode");
   console.log("  swarmcode init my-workspace --redis redis://your-redis:6379");
