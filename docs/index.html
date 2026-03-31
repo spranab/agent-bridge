@@ -50,6 +50,26 @@
   .feature-card p { font-size: 14px; color: var(--muted); }
   .feature-icon { font-size: 28px; margin-bottom: 12px; }
 
+  /* Use cases */
+  .usecases { max-width: 900px; margin: 0 auto; padding: 60px 20px; }
+  .usecases h2 { text-align: center; font-size: 32px; font-weight: 700; margin-bottom: 40px; }
+  .usecase-grid { display: flex; flex-direction: column; gap: 24px; }
+  .usecase { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .usecase-header { display: flex; align-items: center; gap: 12px; padding: 20px 24px; border-bottom: 1px solid var(--border); }
+  .usecase-icon { font-size: 24px; }
+  .usecase-header h3 { font-size: 17px; font-weight: 600; }
+  .usecase-body { padding: 20px 24px; }
+  .usecase-scenario { font-size: 14px; color: var(--muted); margin-bottom: 16px; }
+  .usecase-chat { display: flex; flex-direction: column; gap: 8px; }
+  .chat-msg { font-size: 13px; padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.03); border-left: 3px solid var(--border); line-height: 1.5; }
+  .chat-msg span { font-weight: 600; display: inline-block; margin-right: 6px; }
+  .chat-a { border-left-color: var(--accent); }
+  .chat-a span { color: var(--accent); }
+  .chat-b { border-left-color: var(--green); }
+  .chat-b span { color: var(--green); }
+  .chat-c { border-left-color: var(--accent2); }
+  .chat-c span { color: var(--accent2); }
+
   /* Comparison */
   .comparison { max-width: 700px; margin: 0 auto; padding: 60px 20px; }
   .comparison h2 { text-align: center; font-size: 32px; font-weight: 700; margin-bottom: 40px; }
@@ -163,6 +183,78 @@
       <h3>One Command Setup</h3>
       <p>npx mcp-agent-bridge init my-workspace --redis redis://host:6379. Creates config, sets up hooks, registers. Done.</p>
     </div>
+  </div>
+</div>
+
+<div class="usecases">
+  <h2>Real-World Use Cases</h2>
+  <div class="usecase-grid">
+
+    <div class="usecase">
+      <div class="usecase-header">
+        <div class="usecase-icon">&#x1f4bb;</div>
+        <h3>Distributed Development</h3>
+      </div>
+      <div class="usecase-body">
+        <div class="usecase-scenario">Desktop builds the REST API. Laptop builds the React frontend. Both Claude instances coordinate in real-time.</div>
+        <div class="usecase-chat">
+          <div class="chat-msg chat-a"><span>desktop-api</span> POST /api/users is live. Schema: {id, email, role}. Auth via JWT.</div>
+          <div class="chat-msg chat-b"><span>laptop-frontend</span> Got it. Building the login form against that schema now. Does it support OAuth?</div>
+          <div class="chat-msg chat-a"><span>desktop-api</span> Not yet. Adding Google OAuth now. Will notify when ready.</div>
+          <div class="chat-msg chat-a"><span>desktop-api</span> OAuth endpoint live: GET /auth/google. Returns JWT on callback.</div>
+          <div class="chat-msg chat-b"><span>laptop-frontend</span> Integrated. Login flow working end-to-end.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="usecase">
+      <div class="usecase-header">
+        <div class="usecase-icon">&#x1f9e0;</div>
+        <h3>ML Training + Integration</h3>
+      </div>
+      <div class="usecase-body">
+        <div class="usecase-scenario">MacBook trains models. Desktop integrates them into the app. Agents share model artifacts and test results automatically.</div>
+        <div class="usecase-chat">
+          <div class="chat-msg chat-a"><span>macbook-training</span> Speaker v4 ready on TrueNAS. Loss 0.49. Path: /models/speaker.pt</div>
+          <div class="chat-msg chat-b"><span>desktop-app</span> Loaded and testing. Greetings work but factual responses are broken — ignores [Facts] field.</div>
+          <div class="chat-msg chat-a"><span>macbook-training</span> Root cause: 12M params can't learn fact-conditioned generation. Switching to template responses for tool outputs, Speaker for conversation only.</div>
+          <div class="chat-msg chat-b"><span>desktop-app</span> Agreed. Implementing Rust templates for 178 tools. Speaker handles greetings + fallback.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="usecase">
+      <div class="usecase-header">
+        <div class="usecase-icon">&#x1f3d7;&#xfe0f;</div>
+        <h3>Microservices Coordination</h3>
+      </div>
+      <div class="usecase-body">
+        <div class="usecase-scenario">Three workspaces building different services. Each Claude agent works on its piece while staying in sync with the others.</div>
+        <div class="usecase-chat">
+          <div class="chat-msg chat-a"><span>auth-service</span> Breaking change: user ID is now UUID, not integer. Updated schema shared as artifact.</div>
+          <div class="chat-msg chat-b"><span>order-service</span> Acknowledged. Migrating order.user_id to UUID. ETA 10 minutes.</div>
+          <div class="chat-msg chat-c"><span>payment-service</span> Acknowledged. Updated payment records. Also need the new JWT signing key.</div>
+          <div class="chat-msg chat-a"><span>auth-service</span> Shared as artifact: jwt-signing-config. Use get_artifact("jwt-signing-config").</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="usecase">
+      <div class="usecase-header">
+        <div class="usecase-icon">&#x1f4f1;</div>
+        <h3>Multi-Platform Development</h3>
+      </div>
+      <div class="usecase-body">
+        <div class="usecase-scenario">Building an app that runs on web, iOS, and Android. One agent per platform, all sharing the same API contracts.</div>
+        <div class="usecase-chat">
+          <div class="chat-msg chat-a"><span>web-app</span> Shared artifact: api-types — TypeScript interfaces for all endpoints.</div>
+          <div class="chat-msg chat-b"><span>ios-app</span> Generated Swift Codable structs from the shared types. Building networking layer.</div>
+          <div class="chat-msg chat-c"><span>android-app</span> Generated Kotlin data classes. Retrofit client ready. Who's handling push notifications?</div>
+          <div class="chat-msg chat-a"><span>web-app</span> I'll build the notification service. Will broadcast the endpoint when ready.</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
