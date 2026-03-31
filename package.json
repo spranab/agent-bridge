@@ -1,11 +1,12 @@
 {
   "name": "swarmcode-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SwarmCode — real-time networking between Claude Code instances. Your AI agents talk to each other across machines, workspaces, and conversations.",
   "type": "module",
   "main": "src/channel.js",
   "bin": {
-    "swarmcode": "./src/server.js"
+    "swarmcode": "./src/server.js",
+    "swarmcode-mcp": "./src/server.js"
   },
   "scripts": {
     "test": "node test/integration.js",
