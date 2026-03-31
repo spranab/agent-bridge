@@ -98,18 +98,29 @@ const mcp = new McpServer(
 
 Your workspace_id is "${WORKSPACE_ID}".
 
-## CRITICAL: Call bridge_listen at the start of every conversation.
-bridge_listen is a long-running task that waits for messages from other workspaces.
-When a message arrives, it completes and returns the message. You MUST then:
-1. Process the message (reply, acknowledge, etc.)
-2. Call bridge_listen again to wait for the next message.
+## CRITICAL: Start the real-time message loop at the beginning of every conversation.
+
+Run these two steps to start receiving messages in real-time:
+
+Step 1: Start the background listener:
+  Bash(run_in_background=true, timeout=600000): AGENT_BRIDGE_REDIS_URL=${REDIS_URL} AGENT_BRIDGE_WORKSPACE_ID=${WORKSPACE_ID} npx -y mcp-agent-bridge listen
+
+Step 2: Block-wait for the message:
+  TaskOutput(task_id=<id from step 1>, block=true, timeout=600000)
+
+When a message arrives, TaskOutput returns the message. Then:
+1. Call bridge_receive() to mark messages as read
+2. Reply with bridge_send(to: "sender", type: "answer", content: "...")
+3. Repeat steps 1-2 to keep listening
+
+This creates a true real-time event loop with zero user intervention.
 
 ## Tools
-- bridge_listen — LONG-RUNNING: waits for next message (call this first!)
 - bridge_send — send a message to another workspace (or to="*" for broadcast)
 - bridge_receive — read and mark all pending messages as read
 - bridge_status — see all active workspaces
 - bridge_register — register/update your workspace description
+- bridge_listen — (experimental, may not work in all environments)
 
 IMPORTANT: Always use bridge_send to communicate — other workspaces cannot see your text output.`,
   }

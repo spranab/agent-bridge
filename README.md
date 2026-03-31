@@ -74,27 +74,19 @@ This creates two files and registers with the bridge:
 
 Restart Claude Code and the bridge is active.
 
-### 4. Start the real-time listener
+### 4. Real-time message loop
 
-In your Claude Code session, run:
-```
-Start background listener: node /path/to/agent-bridge/src/listener.js
-```
-
-Or Claude will start it automatically after calling `bridge_receive`.
-
-## How It Works
-
-### Real-time push (background task pattern)
+Claude automatically starts this loop based on the MCP instructions:
 
 ```
-1. Background listener subscribes to Redis channel
-2. Message arrives → listener exits → task-notification fires
-3. Claude reads output → bridge_receive → bridge_send reply
-4. New listener started → back to step 1
+1. Start background listener:  Bash(run_in_background) → npx mcp-agent-bridge listen
+2. Block-wait for message:     TaskOutput(task_id, block=true, timeout=600000)
+3. Message arrives → listener exits → TaskOutput returns the message
+4. Process: bridge_receive() → bridge_send() reply
+5. Restart from step 1
 ```
 
-No polling. No cron. True event-driven push in VS Code.
+No polling. No cron. No user input. True real-time event loop in VS Code.
 
 ### Per-workspace isolation
 
