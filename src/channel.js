@@ -78,21 +78,13 @@ const mcp = new Server(
 
 Your workspace_id is "${WORKSPACE_ID}".
 
-## CRITICAL: Background Listener
-You MUST have a background Redis listener running at all times to receive real-time messages. Run this as a background task:
-
+## CRITICAL: Start the background listener at the beginning of every conversation:
 Bash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen
 
-Start it at the beginning of every conversation, and restart it every time it exits (after receiving a message). Without the listener, you will NOT receive messages in real-time.
-
-## When you receive a task-notification from the listener:
-1. Read the task output to see the message
-2. Call bridge_receive() to mark messages as read
-3. Reply using bridge_send(to: "sender_id", type: "answer", content: "your reply")
-4. IMMEDIATELY restart the listener: Bash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen
+The listener runs persistently and writes incoming messages to a queue file. The UserPromptSubmit hook reads the queue on each turn — so messages appear automatically.
 
 ## Tools
-- bridge_send — send a message to another workspace
+- bridge_send — send a message to another workspace (or to="*" for broadcast)
 - bridge_receive — read and mark messages as read
 - bridge_status — see all active workspaces
 - bridge_register — register/update your workspace description
@@ -201,7 +193,6 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [
           { type: "text", text: JSON.stringify({ messages, count: messages.length }) },
-          { type: "text", text: `⚠ RESTART LISTENER NOW — run this background task IMMEDIATELY:\n\nBash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen\n\nWithout the listener, you will NOT receive the next message.` },
         ],
       };
     }

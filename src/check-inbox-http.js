@@ -1,45 +1,30 @@
 #!/usr/bin/env node
 
 /**
- * Inbox checker hook for Claude Code.
- * Reads config from .mcp.json and checks for pending messages.
+ * Fast inbox checker hook for Claude Code.
  *
- * Supports two sources:
- *   1. HTTP API (from agent-bridge SSE server URL in .mcp.json)
- *   2. Direct Redis (from agent-bridge env in .mcp.json)
+ * Priority order:
+ *   1. Queue file (.agent-bridge-inbox) — written by persistent listener, instant read
+ *   2. Direct Redis — fallback if listener isn't running
  *
- * Two modes based on AGENT_BRIDGE_HOOK_MODE env var:
- *   "stop"   → outputs JSON {decision:"block", reason:"..."} to force Claude to continue
- *   default  → outputs text directives for UserPromptSubmit context injection
+ * Clears the queue file after reading so messages aren't shown twice.
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { resolve } from "path";
 
-let BASE_URL = process.env.AGENT_BRIDGE_URL;
 let WORKSPACE_ID = process.env.AGENT_BRIDGE_WORKSPACE_ID;
 let REDIS_URL = process.env.AGENT_BRIDGE_REDIS_URL;
-const HOOK_MODE = process.env.AGENT_BRIDGE_HOOK_MODE || "prompt";
 
-// Try to read from .mcp.json
-if (!BASE_URL || !WORKSPACE_ID) {
+// Read from .mcp.json if not set
+if (!WORKSPACE_ID || !REDIS_URL) {
   try {
     const mcpPath = resolve(process.cwd(), ".mcp.json");
     const mcpConfig = JSON.parse(readFileSync(mcpPath, "utf-8"));
-
-    // Try SSE server first
-    const sseServer = mcpConfig?.mcpServers?.["agent-bridge"];
-    if (sseServer?.url) {
-      WORKSPACE_ID = WORKSPACE_ID || sseServer.headers?.["x-workspace-id"];
-      const parsed = new URL(sseServer.url);
-      BASE_URL = BASE_URL || `${parsed.protocol}//${parsed.host}`;
-    }
-
-    // Try channel config
-    const channel = mcpConfig?.mcpServers?.["agent-bridge"];
-    if (channel?.env) {
-      WORKSPACE_ID = WORKSPACE_ID || channel.env.AGENT_BRIDGE_WORKSPACE_ID;
-      REDIS_URL = REDIS_URL || channel.env.AGENT_BRIDGE_REDIS_URL;
+    const bridge = mcpConfig?.mcpServers?.["agent-bridge"];
+    if (bridge?.env) {
+      WORKSPACE_ID = WORKSPACE_ID || bridge.env.AGENT_BRIDGE_WORKSPACE_ID;
+      REDIS_URL = REDIS_URL || bridge.env.AGENT_BRIDGE_REDIS_URL;
     }
   } catch {}
 }
@@ -48,18 +33,20 @@ if (!WORKSPACE_ID) {
   process.exit(0);
 }
 
-// Fetch messages — try HTTP first, fall back to direct Redis
-let messages = [];
+const QUEUE_FILE = resolve(process.cwd(), ".agent-bridge-inbox");
 
-if (BASE_URL) {
+// 1. Try queue file first (instant — written by persistent listener)
+let messages = [];
+if (existsSync(QUEUE_FILE)) {
   try {
-    const res = await fetch(`${BASE_URL}/api/inbox/${WORKSPACE_ID}`);
-    if (res.ok) {
-      const data = await res.json();
-      messages = data.messages || [];
-    }
+    messages = JSON.parse(readFileSync(QUEUE_FILE, "utf-8"));
+    // Clear the queue after reading
+    unlinkSync(QUEUE_FILE);
   } catch {}
-} else if (REDIS_URL) {
+}
+
+// 2. Fall back to Redis if no queue file messages
+if (messages.length === 0 && REDIS_URL) {
   try {
     const { default: Redis } = await import("ioredis");
     const redis = new Redis(REDIS_URL, { keyPrefix: "agent-bridge:" });
@@ -70,13 +57,11 @@ if (BASE_URL) {
 }
 
 if (messages.length === 0) {
-  if (HOOK_MODE === "prompt") {
-    console.log(`[AGENT BRIDGE] You are workspace "${WORKSPACE_ID}". Use this ID for all agent-bridge tool calls.`);
-  }
+  console.log(`[AGENT BRIDGE] You are workspace "${WORKSPACE_ID}".`);
   process.exit(0);
 }
 
-// Build message summary and actions
+// Build directives
 const lines = [];
 const actions = [];
 
@@ -120,10 +105,4 @@ for (let i = 0; i < actions.length; i++) {
   lines.push(`${i + 2}. ${actions[i]}`);
 }
 
-const reason = lines.join("\n");
-
-if (HOOK_MODE === "stop") {
-  console.log(JSON.stringify({ decision: "block", reason }));
-} else {
-  console.log(`[AGENT BRIDGE] ${reason}`);
-}
+console.log(`[AGENT BRIDGE] ${lines.join("\n")}`);
