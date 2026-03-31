@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "agent-bridge-channel": {
+    "agent-bridge": {
       "command": "npx",
       "args": [
         "-y",

@@ -215,7 +215,7 @@ mcp.experimental.tasks.registerToolTask(
   "bridge_listen",
   {
     description: "Wait for the next message from another workspace. This is a long-running task that completes when a message arrives. Call this at the start of every conversation and after processing each message.",
-    execution: { taskSupport: "required" },
+    execution: { taskSupport: "optional" },
   },
   {
     createTask: async (extra) => {
