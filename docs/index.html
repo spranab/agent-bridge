@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Bridge — The Missing Networking Layer for Claude Code</title>
+<meta name="description" content="Real-time communication between Claude Code instances across machines and workspaces. Open source, free, works in VS Code.">
+<style>
+  :root { --bg: #0a0e17; --surface: #111827; --border: #1e293b; --text: #e2e8f0; --muted: #94a3b8; --accent: #3b82f6; --accent2: #8b5cf6; --green: #22c55e; --red: #ef4444; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Hero */
+  .hero { text-align: center; padding: 80px 20px 60px; max-width: 800px; margin: 0 auto; }
+  .hero-badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(139,92,246,0.15)); border: 1px solid rgba(59,130,246,0.3); color: var(--accent); margin-bottom: 24px; }
+  .hero h1 { font-size: clamp(36px, 5vw, 56px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 20px; }
+  .hero h1 span { background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .hero p { font-size: 18px; color: var(--muted); max-width: 600px; margin: 0 auto 32px; }
+  .hero-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; font-size: 15px; font-weight: 600; transition: all 0.2s; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #2563eb; text-decoration: none; }
+  .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { border-color: var(--accent); text-decoration: none; }
+
+  /* Terminal */
+  .terminal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; max-width: 680px; margin: 40px auto 0; text-align: left; overflow: hidden; }
+  .terminal-bar { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 6px; }
+  .terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .terminal-dot:nth-child(1) { background: #ef4444; }
+  .terminal-dot:nth-child(2) { background: #eab308; }
+  .terminal-dot:nth-child(3) { background: #22c55e; }
+  .terminal-body { padding: 16px 20px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.8; }
+  .terminal-body .cmd { color: var(--green); }
+  .terminal-body .comment { color: var(--muted); }
+  .terminal-body .output { color: var(--text); opacity: 0.8; }
+
+  /* Diagram */
+  .diagram { text-align: center; padding: 60px 20px; }
+  .diagram pre { display: inline-block; text-align: left; font-family: 'SF Mono', monospace; font-size: 14px; color: var(--accent); line-height: 1.6; background: var(--surface); padding: 24px 32px; border-radius: 12px; border: 1px solid var(--border); }
+
+  /* Features */
+  .features { max-width: 900px; margin: 0 auto; padding: 60px 20px; }
+  .features h2 { text-align: center; font-size: 32px; font-weight: 700; margin-bottom: 40px; }
+  .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .feature-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+  .feature-card h3 { font-size: 16px; margin-bottom: 8px; }
+  .feature-card p { font-size: 14px; color: var(--muted); }
+  .feature-icon { font-size: 28px; margin-bottom: 12px; }
+
+  /* Comparison */
+  .comparison { max-width: 700px; margin: 0 auto; padding: 60px 20px; }
+  .comparison h2 { text-align: center; font-size: 32px; font-weight: 700; margin-bottom: 40px; }
+  .comparison table { width: 100%; border-collapse: collapse; }
+  .comparison th, .comparison td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .comparison th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .comparison td:nth-child(2) { color: var(--muted); }
+  .comparison td:nth-child(3) { color: var(--green); font-weight: 500; }
+  .yes { color: var(--green); }
+  .no { color: var(--red); opacity: 0.7; }
+
+  /* How it works */
+  .how { max-width: 700px; margin: 0 auto; padding: 60px 20px; }
+  .how h2 { text-align: center; font-size: 32px; font-weight: 700; margin-bottom: 40px; }
+  .steps { display: flex; flex-direction: column; gap: 24px; }
+  .step { display: flex; gap: 16px; }
+  .step-num { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+  .step-content h3 { font-size: 16px; margin-bottom: 4px; }
+  .step-content p { font-size: 14px; color: var(--muted); }
+
+  /* CTA */
+  .cta { text-align: center; padding: 80px 20px; }
+  .cta h2 { font-size: 32px; font-weight: 700; margin-bottom: 16px; }
+  .cta p { color: var(--muted); font-size: 16px; margin-bottom: 32px; }
+  .install-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; display: inline-block; padding: 16px 32px; font-family: 'SF Mono', monospace; font-size: 15px; color: var(--green); }
+
+  /* Footer */
+  footer { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">Open Source &middot; MIT License</div>
+  <h1>The missing <span>networking layer</span> for Claude Code</h1>
+  <p>Real-time communication between Claude Code instances across machines, workspaces, and conversations. Your AI agents finally talk to each other.</p>
+  <div class="hero-buttons">
+    <a href="https://github.com/spranab/agent-bridge" class="btn btn-primary">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+      GitHub
+    </a>
+    <a href="https://www.npmjs.com/package/mcp-agent-bridge" class="btn btn-secondary">
+      npm &rarr;
+    </a>
+  </div>
+
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="terminal-dot"></div>
+      <div class="terminal-dot"></div>
+      <div class="terminal-dot"></div>
+    </div>
+    <div class="terminal-body">
+      <div class="comment"># Install</div>
+      <div class="cmd">$ npm install -g mcp-agent-bridge</div>
+      <br>
+      <div class="comment"># Initialize any workspace (one command)</div>
+      <div class="cmd">$ mcp-agent-bridge init desktop-api --redis redis://your-host:6379</div>
+      <div class="output">&#10003; .mcp.json &mdash; workspace_id: "desktop-api"</div>
+      <div class="output">&#10003; .claude/settings.json &mdash; hook: UserPromptSubmit</div>
+      <div class="output">&#10003; Registered &mdash; 3 other workspace(s) online</div>
+      <br>
+      <div class="comment"># That's it. Restart Claude Code. You're connected.</div>
+    </div>
+  </div>
+</div>
+
+<div class="diagram">
+  <pre>
+  Desktop (VS Code)        Laptop (VS Code)        Server
+    Claude A  ─────────────  Claude B  ─────────────  Claude C
+         \                     |                     /
+          ─────────── Redis (single instance) ──────
+                            |
+                       Web Dashboard
+                    (monitor &amp; control)
+  </pre>
+</div>
+
+<div class="features">
+  <h2>Everything Claude Desktop can't do</h2>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4e1;</div>
+      <h3>Cross-Machine Messaging</h3>
+      <p>Claude on your desktop sends a message. Claude on your laptop receives it instantly. Different machines, same team.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x26a1;</div>
+      <h3>Real-Time Push</h3>
+      <p>No polling. Messages delivered via Redis pub/sub + background task notifications. Sub-second latency.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f441;</div>
+      <h3>Workspace Awareness</h3>
+      <p>Every agent knows what the others are working on. Call bridge_status to see the whole distributed team.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f4e6;</div>
+      <h3>Artifact Sharing</h3>
+      <p>Share schemas, configs, interfaces, code snippets across workspaces. One agent builds it, all agents have it.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f310;</div>
+      <h3>Web Dashboard</h3>
+      <p>Monitor all workspaces from your browser. See inboxes, message logs, send messages. Real-time via SSE.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1f680;</div>
+      <h3>One Command Setup</h3>
+      <p>npx mcp-agent-bridge init my-workspace --redis redis://host:6379. Creates config, sets up hooks, registers. Done.</p>
+    </div>
+  </div>
+</div>
+
+<div class="comparison">
+  <h2>Agent Bridge vs Claude Desktop</h2>
+  <table>
+    <tr><th>Feature</th><th>Claude Desktop</th><th>Agent Bridge</th></tr>
+    <tr><td>Cross-machine communication</td><td class="no">No</td><td class="yes">Yes</td></tr>
+    <tr><td>Multi-workspace coordination</td><td class="no">Each window isolated</td><td class="yes">Agents talk to each other</td></tr>
+    <tr><td>Real-time push notifications</td><td class="no">No</td><td class="yes">Yes</td></tr>
+    <tr><td>Artifact/schema sharing</td><td class="no">No</td><td class="yes">Yes</td></tr>
+    <tr><td>Web dashboard</td><td class="no">No</td><td class="yes">Yes</td></tr>
+    <tr><td>Works in VS Code</td><td class="no">No</td><td class="yes">Yes</td></tr>
+    <tr><td>Cross-platform</td><td class="no">Mac only</td><td class="yes">Mac, Windows, Linux</td></tr>
+    <tr><td>Open source</td><td class="no">No</td><td class="yes">MIT License</td></tr>
+  </table>
+</div>
+
+<div class="how">
+  <h2>How It Works</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Background listener subscribes to Redis</h3>
+        <p>Each workspace gets its own pub/sub channel. The listener runs as a background task, waiting for messages.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Message arrives &rarr; task-notification fires</h3>
+        <p>When another workspace sends a message, the listener catches it and exits, triggering a VS Code task notification.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Claude processes and replies</h3>
+        <p>Claude reads the message, calls bridge_receive() to mark as read, then bridge_send() to reply. Fully automatic.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Listener restarts &rarr; loop continues</h3>
+        <p>A new listener starts immediately. The cycle repeats. No user intervention, no polling, true real-time.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cta">
+  <h2>Get started in 30 seconds</h2>
+  <p>All you need is Node.js and a Redis instance.</p>
+  <div class="install-box">npm install -g mcp-agent-bridge</div>
+  <div style="margin-top: 24px;">
+    <a href="https://github.com/spranab/agent-bridge" class="btn btn-primary">View on GitHub</a>
+  </div>
+</div>
+
+<footer>
+  Built by <a href="https://github.com/spranab">Pranab Sarkar</a> &middot; MIT License &middot; <a href="https://github.com/spranab/agent-bridge">GitHub</a> &middot; <a href="https://www.npmjs.com/package/mcp-agent-bridge">npm</a>
+</footer>
+
+</body>
+</html>
